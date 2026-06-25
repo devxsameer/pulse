@@ -11,6 +11,10 @@ import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import appCss from "../styles.css?url";
 
 import type { QueryClient } from "@tanstack/react-query";
+import { getSession } from "#/features/auth/auth.functions";
+import { authKeys } from "#/features/auth/auth.queries";
+import { ThemeProvider } from "#/components/theme-provider";
+import { Header } from "#/components/header";
 
 export interface MyRouterContext {
   queryClient: QueryClient;
@@ -38,6 +42,10 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
     ],
   }),
   shellComponent: RootDocument,
+  beforeLoad: async ({ context }) => {
+    const session = await getSession();
+    context.queryClient.setQueryData(authKeys.session(), session);
+  },
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
@@ -46,8 +54,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body className="font-sans wrap-anywhere antialiased selection:bg-[rgba(79,184,178,0.24)]">
-        {children}
+      <body className="bg-background text-foreground min-h-screen antialiased">
+        <ThemeProvider defaultTheme="system" storageKey="theme">
+          <Header />
+          <main>{children}</main>
+        </ThemeProvider>
+
         <TanStackDevtools
           config={{
             position: "bottom-right",
