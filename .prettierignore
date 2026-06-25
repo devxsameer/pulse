@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+build/
+.next/
+.out/
+coverage/
+
+# Turborepo
+.turbo/
+
+# Generated files
+*.lock
+pnpm-lock.yaml
+
+# Misc
+*.log
