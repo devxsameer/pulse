@@ -3,18 +3,22 @@ import {
   Scripts,
   createRootRouteWithContext,
 } from "@tanstack/react-router";
-import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
-import { TanStackDevtools } from "@tanstack/react-devtools";
 
-import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
+import { TanStackDevtools } from "@tanstack/react-devtools";
+import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
+import { ReactQueryDevtoolsPanel } from "@tanstack/react-query-devtools";
 
 import appCss from "../styles.css?url";
 
 import type { QueryClient } from "@tanstack/react-query";
-import { getSession } from "#/features/auth/auth.functions";
-import { authKeys } from "#/features/auth/auth.queries";
-import { ThemeProvider } from "#/components/theme-provider";
-import { Header } from "#/components/header";
+
+import { ThemeProvider } from "#/app/providers/theme-provider";
+
+import { authKeys } from "#/features/auth/client/auth.queries";
+
+import { Header } from "#/app/layouts/header";
+import { Toaster } from "#/app/layouts/toaster";
+import { getServerSessionFn } from "#/features/auth/server/auth.functions";
 
 export interface MyRouterContext {
   queryClient: QueryClient;
@@ -43,7 +47,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
   }),
   shellComponent: RootDocument,
   beforeLoad: async ({ context }) => {
-    const session = await getSession();
+    const session = await getServerSessionFn();
     context.queryClient.setQueryData(authKeys.session(), session);
   },
 });
@@ -58,6 +62,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <ThemeProvider defaultTheme="system" storageKey="theme">
           <Header />
           <main>{children}</main>
+          <Toaster />
         </ThemeProvider>
 
         <TanStackDevtools
@@ -69,7 +74,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
               name: "Tanstack Router",
               render: <TanStackRouterDevtoolsPanel />,
             },
-            TanStackQueryDevtools,
+            {
+              name: "Tanstack Query",
+              render: <ReactQueryDevtoolsPanel />,
+            },
           ]}
         />
         <Scripts />

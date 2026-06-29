@@ -1,13 +1,16 @@
 import { Button } from "#/components/ui/button";
-import { useSession } from "#/features/auth/auth.hooks";
-import { useGithubLogin, useLogout } from "#/features/auth/auth.mutations";
+import { useAuth } from "#/features/auth/client/auth.hooks";
+import {
+  useGithubLogin,
+  useLogout,
+} from "#/features/auth/client/auth.mutations";
 import { createFileRoute } from "@tanstack/react-router";
 import { Github } from "lucide-react";
 
 export const Route = createFileRoute("/")({ component: App });
 
 function App() {
-  const { data, isSuccess } = useSession();
+  const { data, isSuccess } = useAuth();
   const loginMutation = useGithubLogin();
   const logoutMutation = useLogout();
 
