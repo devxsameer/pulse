@@ -4,6 +4,7 @@ import { Field, FieldGroup } from "#/components/ui/field";
 import { Button } from "#/components/ui/button";
 import { FormInputField } from "./form-input-field";
 import { useSignup } from "../client/auth.mutations";
+import { toast } from "sonner";
 
 function SignupForm() {
   const signupMutation = useSignup();
@@ -19,7 +20,10 @@ function SignupForm() {
       onSubmit: signupSchema,
     },
     onSubmit: async ({ value }) => {
-      signupMutation.mutate(value);
+      toast.promise(signupMutation.mutateAsync(value), {
+        loading: "Creating your account...",
+        success: "Account created successfully",
+      });
     },
   });
   return (

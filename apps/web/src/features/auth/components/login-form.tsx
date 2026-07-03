@@ -4,6 +4,7 @@ import { Button } from "#/components/ui/button";
 import { loginSchema } from "../schemas/login.schema";
 import { FormInputField } from "./form-input-field";
 import { useLogin } from "../client/auth.mutations";
+import { toast } from "sonner";
 
 function LoginForm() {
   const loginMutation = useLogin();
@@ -17,7 +18,10 @@ function LoginForm() {
       onSubmit: loginSchema,
     },
     onSubmit: async ({ value }) => {
-      loginMutation.mutate(value);
+      toast.promise(loginMutation.mutateAsync(value), {
+        loading: "Logging into your account...",
+        success: "Logged In successfully",
+      });
     },
   });
   return (

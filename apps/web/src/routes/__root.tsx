@@ -16,7 +16,6 @@ import { ThemeProvider } from "#/app/providers/theme-provider";
 
 import { authKeys } from "#/features/auth/client/auth.queries";
 
-import { Header } from "#/app/layouts/header";
 import { Toaster } from "#/app/layouts/toaster";
 import { getServerSessionFn } from "#/features/auth/server/auth.functions";
 
@@ -60,7 +59,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="bg-background text-foreground min-h-screen antialiased">
         <ThemeProvider defaultTheme="system" storageKey="theme">
-          <Header />
           <main>{children}</main>
           <Toaster />
         </ThemeProvider>

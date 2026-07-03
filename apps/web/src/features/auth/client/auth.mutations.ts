@@ -7,22 +7,17 @@ import type { LoginInput } from "../schemas/login.schema";
 import { useNavigate } from "@tanstack/react-router";
 
 export function useGithubLogin() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async () => {
-      await authClient.signIn.social({
+      const { error } = await authClient.signIn.social({
         provider: "github",
         callbackURL: "/callback",
       });
-    },
 
-    onSuccess: async () => {
-      // Normally won't execute because OAuth redirects immediately.
-      toast.success("Logged In Sucessfully");
-      await queryClient.invalidateQueries({
-        queryKey: authKeys.session(),
-      });
+      if (error) throw error;
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to continue with GitHub");
     },
   });
 }
@@ -38,9 +33,6 @@ export function useLogin() {
       if (error) throw error;
     },
 
-    onSuccess: () => {
-      toast.success("Logged In Sucessfully");
-    },
     onError: (err) => {
       toast.error(err.message);
     },
@@ -60,8 +52,6 @@ export function useSignup() {
     },
 
     onSuccess: async () => {
-      toast.success("Signed Up Successfully");
-
       navigate({
         to: "/",
       });

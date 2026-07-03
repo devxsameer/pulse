@@ -23,7 +23,7 @@ export function Header() {
   const user = data?.user;
   return (
     <header className="bg-background/80 sticky top-0 z-50 border-b backdrop-blur-xl">
-      <PageContainer className="flex h-16 items-center justify-between">
+      <PageContainer className="flex h-14 items-center justify-between">
         {/* Logo */}
         <Link
           to="/"
