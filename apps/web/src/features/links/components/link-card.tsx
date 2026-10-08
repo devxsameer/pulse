@@ -24,10 +24,12 @@ type LinkCardProps = {
 };
 
 export function LinkCard({ link }: LinkCardProps) {
-  const shortUrl = `${window.location.origin}/${link.shortCode}`;
+  const shortPath = `/r/${link.shortCode}`;
 
   async function copyShortUrl() {
-    await navigator.clipboard.writeText(shortUrl);
+    await navigator.clipboard.writeText(
+      `${window.location.origin}${shortPath}`,
+    );
 
     toast.success("Link copied");
   }
@@ -56,7 +58,7 @@ export function LinkCard({ link }: LinkCardProps) {
           onClick={copyShortUrl}
           className="text-primary mt-1 block truncate text-sm hover:underline"
         >
-          /{link.shortCode}
+          {shortPath}
         </button>
 
         <p className="text-muted-foreground mt-1 truncate text-xs">

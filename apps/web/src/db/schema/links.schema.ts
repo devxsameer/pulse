@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -8,18 +9,22 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import { user } from "./auth.schema";
+import { organization, user } from "./auth.schema";
 
 export const links = pgTable(
   "links",
   {
     id: uuid("id").defaultRandom().primaryKey(),
 
-    userId: text("user_id")
+    workspaceId: text("workspace_id")
       .notNull()
-      .references(() => user.id, {
+      .references(() => organization.id, {
         onDelete: "cascade",
       }),
+
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
 
     shortCode: text("short_code").notNull(),
 
@@ -49,12 +54,16 @@ export const links = pgTable(
       .notNull(),
   },
   (table) => [
-    uniqueIndex("links_short_code_unique_idx").on(table.shortCode),
+    // Codes keep the casing they were created with but resolve case-insensitively.
+    uniqueIndex("links_short_code_lower_unique_idx").on(
+      sql`lower(${table.shortCode})`,
+    ),
 
-    index("links_user_id_idx").on(table.userId),
+    index("links_workspace_created_at_idx").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
 
-    index("links_user_created_at_idx").on(table.userId, table.createdAt),
-
-    index("links_user_active_idx").on(table.userId, table.isActive),
+    index("links_created_by_idx").on(table.createdBy),
   ],
 );

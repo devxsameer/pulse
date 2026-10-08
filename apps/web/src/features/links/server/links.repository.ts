@@ -1,12 +1,12 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
-import { db } from "#/db";
+import { getDb } from "#/db";
 import { links } from "#/db/schema";
 
 export type CreateLinkRecord = typeof links.$inferInsert;
 
 export async function insertLink(input: CreateLinkRecord) {
-  const [createdLink] = await db.insert(links).values(input).returning();
+  const [createdLink] = await getDb().insert(links).values(input).returning();
 
   if (!createdLink) {
     throw new Error("Failed to create link");
@@ -16,28 +16,31 @@ export async function insertLink(input: CreateLinkRecord) {
 }
 
 export async function findLinkByShortCode(shortCode: string) {
-  const [foundLink] = await db
+  const [foundLink] = await getDb()
     .select()
     .from(links)
-    .where(eq(links.shortCode, shortCode))
+    .where(eq(sql`lower(${links.shortCode})`, shortCode.toLowerCase()))
     .limit(1);
 
   return foundLink ?? null;
 }
 
-export async function findLinksByUserId(userId: string) {
-  return db
+export async function findLinksByWorkspaceId(workspaceId: string) {
+  return getDb()
     .select()
     .from(links)
-    .where(eq(links.userId, userId))
+    .where(eq(links.workspaceId, workspaceId))
     .orderBy(desc(links.createdAt));
 }
 
-export async function findUserLinkById(linkId: string, userId: string) {
-  const [foundLink] = await db
+export async function findWorkspaceLinkById(
+  linkId: string,
+  workspaceId: string,
+) {
+  const [foundLink] = await getDb()
     .select()
     .from(links)
-    .where(and(eq(links.id, linkId), eq(links.userId, userId)))
+    .where(and(eq(links.id, linkId), eq(links.workspaceId, workspaceId)))
     .limit(1);
 
   return foundLink ?? null;

@@ -1,7 +1,5 @@
-import { getRequest } from "@tanstack/react-start/server";
-import { getServerSessionFn } from "./auth.functions";
 import { redirect } from "@tanstack/react-router";
-import { getServerSession } from "./auth.server";
+import { getServerSessionFn } from "./auth.functions";
 
 export async function requireAuth() {
   const session = await getServerSessionFn();
@@ -20,21 +18,7 @@ export async function requireGuest() {
 
   if (session) {
     throw redirect({
-      to: "/",
+      to: "/dashboard",
     });
   }
-}
-
-export async function requireServerSession() {
-  const request = getRequest();
-
-  const session = await getServerSession(request);
-
-  if (!session) {
-    throw redirect({
-      to: "/login",
-    });
-  }
-
-  return session;
 }

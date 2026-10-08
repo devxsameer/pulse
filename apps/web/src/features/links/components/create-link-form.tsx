@@ -14,7 +14,7 @@ import { Input } from "#/components/ui/input";
 import { Textarea } from "#/components/ui/textarea";
 
 import { useCreateLink } from "../client/links.mutations";
-import { createLinkSchema } from "../schemas/link.schema";
+import { createLinkSchema } from "../schemas/create-link.schema";
 
 type CreateLinkFormProps = {
   onCreated?: () => void;
@@ -38,7 +38,13 @@ export function CreateLinkForm({ onCreated }: CreateLinkFormProps) {
 
     onSubmit: async ({ value }) => {
       try {
-        const createdLink = await createLink.mutateAsync(value);
+        // datetime-local has no timezone; convert in the browser so the server gets the user's intent.
+        const createdLink = await createLink.mutateAsync({
+          ...value,
+          expiresAt: value.expiresAt
+            ? new Date(value.expiresAt).toISOString()
+            : "",
+        });
 
         toast.success("Link created", {
           description: `/${createdLink.shortCode} is ready to share.`,

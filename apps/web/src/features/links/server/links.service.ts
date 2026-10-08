@@ -1,115 +1,67 @@
 import type { CreateLinkInput } from "../schemas/create-link.schema";
+import type { WorkspaceContext } from "#/features/auth/server/auth.server";
+
+import {
+  InvalidLinkError,
+  LinkConflictError,
+  isUniqueViolation,
+} from "../lib/errors";
+import {
+  normalizeDestinationUrl,
+  normalizeExpiration,
+  normalizeOptionalText,
+} from "../lib/normalize";
+import { generateShortCode, validateCustomShortCode } from "../lib/short-code";
 
 import {
   findLinkByShortCode,
-  findLinksByUserId,
+  findLinksByWorkspaceId,
   insertLink,
 } from "./links.repository";
 
-import { generateShortCode } from "./short-code";
-
 const MAX_GENERATION_ATTEMPTS = 5;
 
-export class LinkConflictError extends Error {
-  constructor(message = "Short code is already in use") {
-    super(message);
-    this.name = "LinkConflictError";
-  }
-}
+export async function createLink(
+  ctx: WorkspaceContext,
+  input: CreateLinkInput,
+) {
+  const record = {
+    workspaceId: ctx.workspaceId,
+    createdBy: ctx.userId,
+    destinationUrl: normalizeDestinationUrl(input.destinationUrl),
+    title: normalizeOptionalText(input.title),
+    description: normalizeOptionalText(input.description),
+    expiresAt: normalizeExpiration(input.expiresAt),
+  };
 
-export class InvalidLinkError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "InvalidLinkError";
-  }
-}
+  const customShortCode = input.shortCode.trim();
 
-function normalizeDestinationUrl(value: string) {
-  const url = new URL(value);
-
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new InvalidLinkError("Only HTTP and HTTPS URLs are allowed");
-  }
-
-  return url.toString();
-}
-
-function normalizeOptionalText(value: string) {
-  const normalized = value.trim();
-
-  return normalized.length > 0 ? normalized : null;
-}
-
-function normalizeExpiration(value: string) {
-  if (!value) {
-    return null;
-  }
-
-  const expiresAt = new Date(value);
-
-  if (Number.isNaN(expiresAt.getTime())) {
-    throw new InvalidLinkError("Invalid expiration date");
-  }
-
-  if (expiresAt <= new Date()) {
-    throw new InvalidLinkError("Expiration date must be in the future");
-  }
-
-  return expiresAt;
-}
-
-export async function createLink(userId: string, input: CreateLinkInput) {
-  const destinationUrl = normalizeDestinationUrl(input.destinationUrl);
-
-  const title = normalizeOptionalText(input.title);
-
-  const description = normalizeOptionalText(input.description);
-
-  const expiresAt = normalizeExpiration(input.expiresAt);
-
-  const requestedShortCode = input.shortCode.trim().toLowerCase();
-
-  if (requestedShortCode) {
-    const existingLink = await findLinkByShortCode(requestedShortCode);
-
-    if (existingLink) {
-      throw new LinkConflictError();
+  if (customShortCode) {
+    if (!validateCustomShortCode(customShortCode).ok) {
+      throw new InvalidLinkError("Invalid short code");
     }
 
-    return insertLink({
-      userId,
-      shortCode: requestedShortCode,
-      destinationUrl,
-      title,
-      description,
-      expiresAt,
-    });
+    try {
+      return await insertLink({ ...record, shortCode: customShortCode });
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new LinkConflictError();
+      throw error;
+    }
   }
 
   for (let attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt++) {
-    const shortCode = generateShortCode();
-
-    const existingLink = await findLinkByShortCode(shortCode);
-
-    if (existingLink) {
-      continue;
+    try {
+      return await insertLink({ ...record, shortCode: generateShortCode() });
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
     }
-
-    return insertLink({
-      userId,
-      shortCode,
-      destinationUrl,
-      title,
-      description,
-      expiresAt,
-    });
   }
 
   throw new Error("Unable to generate a unique short code");
 }
 
-export async function getUserLinks(userId: string) {
-  return findLinksByUserId(userId);
+export async function getWorkspaceLinks(ctx: WorkspaceContext) {
+  return findLinksByWorkspaceId(ctx.workspaceId);
 }
 
 export async function resolveLink(shortCode: string) {

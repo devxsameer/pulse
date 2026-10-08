@@ -18,9 +18,12 @@ import { Route as MarketingIndexRouteImport } from './routes/_marketing/index'
 import { Route as RShortCodeRouteImport } from './routes/r/$shortCode'
 import { Route as AuthSignupRouteImport } from './routes/_auth/signup'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
-import { Route as AppOthersRouteImport } from './routes/_app/others'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppQrCodesRouteImport } from './routes/_app/qr-codes'
 import { Route as AppLinksRouteImport } from './routes/_app/links'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppAnalyticsRouteImport } from './routes/_app/analytics'
+import { Route as AppAiInsightsRouteImport } from './routes/_app/ai-insights'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const CallbackRoute = CallbackRouteImport.update({
@@ -65,9 +68,14 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
   path: '/login',
   getParentRoute: () => AuthRouteRoute,
 } as any)
-const AppOthersRoute = AppOthersRouteImport.update({
-  id: '/others',
-  path: '/others',
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppQrCodesRoute = AppQrCodesRouteImport.update({
+  id: '/qr-codes',
+  path: '/qr-codes',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppLinksRoute = AppLinksRouteImport.update({
@@ -80,6 +88,16 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppAnalyticsRoute = AppAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppAiInsightsRoute = AppAiInsightsRouteImport.update({
+  id: '/ai-insights',
+  path: '/ai-insights',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -90,9 +108,12 @@ export interface FileRoutesByFullPath {
   '/': typeof MarketingIndexRoute
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/ai-insights': typeof AppAiInsightsRoute
+  '/analytics': typeof AppAnalyticsRoute
   '/dashboard': typeof AppDashboardRoute
   '/links': typeof AppLinksRoute
-  '/others': typeof AppOthersRoute
+  '/qr-codes': typeof AppQrCodesRoute
+  '/settings': typeof AppSettingsRoute
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
   '/r/$shortCode': typeof RShortCodeRoute
@@ -102,9 +123,12 @@ export interface FileRoutesByTo {
   '/': typeof MarketingIndexRoute
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/ai-insights': typeof AppAiInsightsRoute
+  '/analytics': typeof AppAnalyticsRoute
   '/dashboard': typeof AppDashboardRoute
   '/links': typeof AppLinksRoute
-  '/others': typeof AppOthersRoute
+  '/qr-codes': typeof AppQrCodesRoute
+  '/settings': typeof AppSettingsRoute
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
   '/r/$shortCode': typeof RShortCodeRoute
@@ -117,9 +141,12 @@ export interface FileRoutesById {
   '/_marketing': typeof MarketingRouteRouteWithChildren
   '/about': typeof AboutRoute
   '/callback': typeof CallbackRoute
+  '/_app/ai-insights': typeof AppAiInsightsRoute
+  '/_app/analytics': typeof AppAnalyticsRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/links': typeof AppLinksRoute
-  '/_app/others': typeof AppOthersRoute
+  '/_app/qr-codes': typeof AppQrCodesRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/signup': typeof AuthSignupRoute
   '/r/$shortCode': typeof RShortCodeRoute
@@ -132,9 +159,12 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/callback'
+    | '/ai-insights'
+    | '/analytics'
     | '/dashboard'
     | '/links'
-    | '/others'
+    | '/qr-codes'
+    | '/settings'
     | '/login'
     | '/signup'
     | '/r/$shortCode'
@@ -144,9 +174,12 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/callback'
+    | '/ai-insights'
+    | '/analytics'
     | '/dashboard'
     | '/links'
-    | '/others'
+    | '/qr-codes'
+    | '/settings'
     | '/login'
     | '/signup'
     | '/r/$shortCode'
@@ -158,9 +191,12 @@ export interface FileRouteTypes {
     | '/_marketing'
     | '/about'
     | '/callback'
+    | '/_app/ai-insights'
+    | '/_app/analytics'
     | '/_app/dashboard'
     | '/_app/links'
-    | '/_app/others'
+    | '/_app/qr-codes'
+    | '/_app/settings'
     | '/_auth/login'
     | '/_auth/signup'
     | '/r/$shortCode'
@@ -243,11 +279,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLoginRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/_app/others': {
-      id: '/_app/others'
-      path: '/others'
-      fullPath: '/others'
-      preLoaderRoute: typeof AppOthersRouteImport
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/qr-codes': {
+      id: '/_app/qr-codes'
+      path: '/qr-codes'
+      fullPath: '/qr-codes'
+      preLoaderRoute: typeof AppQrCodesRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/_app/links': {
@@ -264,6 +307,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/_app/analytics': {
+      id: '/_app/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AppAnalyticsRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/ai-insights': {
+      id: '/_app/ai-insights'
+      path: '/ai-insights'
+      fullPath: '/ai-insights'
+      preLoaderRoute: typeof AppAiInsightsRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -275,15 +332,21 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteRouteChildren {
+  AppAiInsightsRoute: typeof AppAiInsightsRoute
+  AppAnalyticsRoute: typeof AppAnalyticsRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppLinksRoute: typeof AppLinksRoute
-  AppOthersRoute: typeof AppOthersRoute
+  AppQrCodesRoute: typeof AppQrCodesRoute
+  AppSettingsRoute: typeof AppSettingsRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
+  AppAiInsightsRoute: AppAiInsightsRoute,
+  AppAnalyticsRoute: AppAnalyticsRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppLinksRoute: AppLinksRoute,
-  AppOthersRoute: AppOthersRoute,
+  AppQrCodesRoute: AppQrCodesRoute,
+  AppSettingsRoute: AppSettingsRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(

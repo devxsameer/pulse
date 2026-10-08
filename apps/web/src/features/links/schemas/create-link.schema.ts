@@ -1,51 +1,58 @@
 import { z } from "zod";
 
-const shortCodeSchema = z
-  .string()
-  .trim()
-  .min(3, "Short code must be at least 3 characters")
-  .max(64, "Short code must be at most 64 characters")
-  .regex(
-    /^[a-zA-Z0-9_-]+$/,
-    "Only letters, numbers, hyphens, and underscores are allowed",
-  );
+import {
+  CUSTOM_SHORT_CODE_MAX_LENGTH,
+  CUSTOM_SHORT_CODE_MIN_LENGTH,
+  validateCustomShortCode,
+} from "../lib/short-code";
 
+const shortCodeMessages = {
+  length: `Use ${CUSTOM_SHORT_CODE_MIN_LENGTH}–${CUSTOM_SHORT_CODE_MAX_LENGTH} characters`,
+  format:
+    "Start with a letter or number; use only letters, numbers, hyphens, and underscores",
+  reserved: "This short code is reserved",
+} as const;
+
+// Every field is a string because that's what form inputs produce;
+// the service normalizes empty strings to null.
 export const createLinkSchema = z.object({
-  destinationUrl: z.url("Enter a valid destination URL").refine(
-    (url) => {
-      const protocol = new URL(url).protocol;
+  destinationUrl: z
+    .url("Enter a valid destination URL")
+    .refine(
+      (url) => {
+        const protocol = new URL(url).protocol;
 
-      return protocol === "http:" || protocol === "https:";
-    },
-    {
-      message: "Only HTTP and HTTPS URLs are allowed",
-    },
-  ),
+        return protocol === "http:" || protocol === "https:";
+      },
+      {
+        message: "Only HTTP and HTTPS URLs are allowed",
+      },
+    ),
 
   shortCode: z
     .string()
     .trim()
-    .max(64, "Short code must be at most 64 characters")
-    .refine(
-      (value) => value.length === 0 || shortCodeSchema.safeParse(value).success,
-      {
-        message: "Use at least 3 letters, numbers, hyphens, or underscores",
-      },
-    ),
+    .superRefine((value, ctx) => {
+      if (value.length === 0) return;
 
-  title: z
-    .string()
-    .trim()
-    .max(120, "Title must be at most 120 characters")
-    .optional(),
+      const result = validateCustomShortCode(value);
+
+      if (!result.ok) {
+        ctx.addIssue({
+          code: "custom",
+          message: shortCodeMessages[result.reason],
+        });
+      }
+    }),
+
+  title: z.string().trim().max(120, "Title must be at most 120 characters"),
 
   description: z
     .string()
     .trim()
-    .max(500, "Description must be at most 500 characters")
-    .optional(),
+    .max(500, "Description must be at most 500 characters"),
 
-  expiresAt: z.date().optional(),
+  expiresAt: z.string(),
 });
 
 export type CreateLinkInput = z.infer<typeof createLinkSchema>;
