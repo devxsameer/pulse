@@ -1,19 +1,33 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "pulse-web",
-  "compatibility_date": "2025-09-02",
-  "compatibility_flags": ["nodejs_compat"],
-  "main": "@tanstack/react-start/server-entry",
-  "observability": {
-    "enabled": true,
-  },
-  // Per-user abuse limit for metadata prefill (M1 §8). namespace_id is any account-unique integer.
-  "ratelimits": [
-    {
-      "name": "METADATA_RATE_LIMITER",
-      "namespace_id": "1001",
-      "simple": { "limit": 10, "period": 60 },
-    },
-  ],
-  // Secrets (DATABASE_URL, BETTER_AUTH_*, GITHUB_*) are set with `wrangler secret put`, never here.
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "pulse-web",
+	"compatibility_date": "2025-09-02",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"main": "@tanstack/react-start/server-entry",
+	// This file is the source of truth: deploys overwrite anything changed in the dashboard.
+	"observability": {
+		"enabled": true
+	},
+	"routes": [
+		{
+			"pattern": "pulse.devxsameer.me",
+			"custom_domain": true
+		}
+	],
+	// Per-user abuse limit for metadata prefill (M1 §8). namespace_id is any account-unique integer.
+	"ratelimits": [
+		{
+			"name": "METADATA_RATE_LIMITER",
+			"namespace_id": "1001",
+			"simple": {
+				"limit": 10,
+				"period": 60
+			},
+		},
+	],
+	"workers_dev": true,
+	"preview_urls": true,
+	// Secrets (DATABASE_URL, BETTER_AUTH_*, GITHUB_*) are set with `wrangler secret put`, never here.
 }
