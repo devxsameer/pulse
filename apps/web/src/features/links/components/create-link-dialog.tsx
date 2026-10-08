@@ -11,7 +11,7 @@ import {
   DialogTrigger,
 } from "#/components/ui/dialog";
 
-import { CreateLinkForm } from "./create-link-form";
+import { LinkForm } from "./link-form";
 
 type CreateLinkDialogProps = {
   trigger?: React.ReactNode;
@@ -40,7 +40,7 @@ export function CreateLinkDialog({ trigger }: CreateLinkDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <CreateLinkForm onCreated={() => setOpen(false)} />
+        <LinkForm onDone={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
   );

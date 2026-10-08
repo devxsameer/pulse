@@ -6,7 +6,7 @@
 | ------------ | ----------------------------------------------------------- |
 | Status       | **Draft** — decisions marked `PROPOSED` are open for review |
 | Owner        | Sameer Ali ([@devxsameer](https://github.com/devxsameer))   |
-| Last updated | 2026-10-07                                                  |
+| Last updated | 2026-10-08                                                  |
 | Scope        | v1 (first public, production release)                       |
 
 ---
@@ -91,9 +91,11 @@ What exists today:
 - Neon Postgres via `drizzle-orm/neon-http`; Drizzle migrations in `apps/web/drizzle`. The DB client, Better Auth instance, and validated server env (`src/lib/env.ts`) are all created lazily on first use.
 - Self-hosted Better Auth (email/password + GitHub OAuth) with the `organization` plugin. Every user gets a personal workspace, which becomes the session's active workspace.
 - `links` owned by `workspace_id` (with `created_by` for the author). Short codes are case-insensitively unique, reserved words are blocked, and inserts catch unique violations instead of checking first.
-- A `/r/$shortCode` route that does a 302 by querying Postgres directly. It gets replaced by the edge redirector in M2.
+- Link management (M1): create, edit, disable/enable, and soft delete; `ILIKE` search and cursor pagination with Load more; per-link QR dialog (PNG/SVG, in the browser); title/description/favicon prefill on paste through an SSRF-guarded, rate-limited server fetch. Layering is server function → service (typed errors, `LinkView` mapper) → repository (workspace-scoped, `deleted_at IS NULL`).
+- A `/r/$shortCode` route that does a 302 by querying Postgres directly, with static 404/410 status pages for not-found, disabled, and expired links. It gets replaced by the edge redirector in M2.
 - Dashboard UI shell (shadcn) with placeholder analytics and AI insight cards.
-- Vitest unit tests for link logic, and GitHub Actions CI running lint, typecheck, tests, a migration-sync check, and build.
+- Vitest unit tests for link logic (short codes, normalization, SSRF guard, metadata parser, status pages), and GitHub Actions CI running lint, typecheck, tests, a migration-sync check, and build.
+- Accepted decisions are recorded in [`docs/adr/`](adr/README.md).
 
 ---
 
@@ -188,7 +190,7 @@ flowchart LR
 
 ## 6. Repository layout
 
-Target layout (the move happens incrementally; `apps/web` stays where it is):
+Target layout. Packages are extracted only when a second app needs them (M2); until then the code lives in `apps/web` (`src/db`, `src/features/*/lib`):
 
 ```
 pulse/
@@ -396,33 +398,33 @@ erDiagram
 | hostname     | text unique | `pulse.ink`             |
 | verified_at  | timestamptz |                         |
 
-**`link`**
+**`link`** (the target design; today's `links` table has `id`, `workspace_id`, `created_by`, `short_code`, `destination_url`, `title`, `description`, `favicon_url`, `image_url`, `is_active`, `expires_at`, `deleted_at`, `created_at`, `updated_at`. The remaining columns arrive with the milestones that need them)
 
-| column                  | type        | notes                                                         |
-| ----------------------- | ----------- | ------------------------------------------------------------- |
-| id                      | uuid PK     |                                                               |
-| workspace_id            | uuid FK     | ownership                                                     |
-| created_by              | text FK     | user id                                                       |
-| domain_id               | uuid FK     |                                                               |
-| short_code              | text        | **unique per (domain_id, short_code)**                        |
-| destination_url         | text        | normalized                                                    |
-| title                   | text        | fetched or user-provided                                      |
-| description             | text        |                                                               |
-| image_url               | text        | OG image                                                      |
-| favicon_url             | text        |                                                               |
-| utm\_\*                 | text ×5     | source, medium, campaign, term, content                       |
-| password_hash           | text        | nullable                                                      |
-| redirect_type           | smallint    | 302 default                                                   |
-| status                  | enum        | `active`, `disabled`, `blocked` (blocked = flagged by safety) |
-| safety_status           | enum        | `pending`, `safe`, `suspicious`, `malicious`                  |
-| expires_at              | timestamptz |                                                               |
-| archived_at             | timestamptz | soft-archive (hidden from list, still redirects)              |
-| deleted_at              | timestamptz | soft delete (stops redirecting, purged after 30 days)         |
-| click_count             | bigint      | denormalized total, updated by the rollup job                 |
-| last_clicked_at         | timestamptz | denormalized                                                  |
-| created_at / updated_at | timestamptz |                                                               |
+| column                  | type        | notes                                                                                                                         |
+| ----------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| id                      | uuid PK     |                                                                                                                               |
+| workspace_id            | uuid FK     | ownership                                                                                                                     |
+| created_by              | text FK     | user id                                                                                                                       |
+| domain_id               | uuid FK     |                                                                                                                               |
+| short_code              | text        | **unique per (domain_id, short_code)**                                                                                        |
+| destination_url         | text        | normalized                                                                                                                    |
+| title                   | text        | fetched or user-provided                                                                                                      |
+| description             | text        |                                                                                                                               |
+| image_url               | text        | OG image                                                                                                                      |
+| favicon_url             | text        |                                                                                                                               |
+| utm\_\*                 | text ×5     | source, medium, campaign, term, content                                                                                       |
+| password_hash           | text        | nullable                                                                                                                      |
+| redirect_type           | smallint    | 302 default                                                                                                                   |
+| status                  | enum        | `active`, `disabled`, `blocked` (blocked = flagged by safety)                                                                 |
+| safety_status           | enum        | `pending`, `safe`, `suspicious`, `malicious`                                                                                  |
+| expires_at              | timestamptz |                                                                                                                               |
+| archived_at             | timestamptz | soft-archive (hidden from list, still redirects)                                                                              |
+| deleted_at              | timestamptz | soft delete (stops redirecting; code stays reserved, no purge in v1, [ADR 0003](adr/0003-immutable-codes-and-soft-delete.md)) |
+| click_count             | bigint      | denormalized total, updated by the rollup job                                                                                 |
+| last_clicked_at         | timestamptz | denormalized                                                                                                                  |
+| created_at / updated_at | timestamptz |                                                                                                                               |
 
-Indexes: `unique(domain_id, short_code)`, `(workspace_id, created_at desc) where deleted_at is null`, `(workspace_id, status)`, and a GIN trigram index on `(title, destination_url)` for search.
+Indexes: today `unique(lower(short_code))` (covering deleted rows) and `(workspace_id, created_at desc, id desc) where deleted_at is null` for the list and cursor pagination. Later: `unique(domain_id, lower(short_code))` with custom domains, `(workspace_id, status)`, and a GIN trigram index on `(title, destination_url)` once `ILIKE` search gets slow ([ADR 0004](adr/0004-cursor-pagination-and-ilike-search.md)).
 
 **`tag`** is `(id, workspace_id, name, color)` with `unique(workspace_id, name)`. **`link_tag`** is `(link_id, tag_id)` with a composite PK.
 
@@ -601,20 +603,20 @@ sequenceDiagram
 
 URL shorteners are a **phishing magnet**. Abuse handling is a feature, not an afterthought.
 
-| Threat                              | Mitigation                                                                                                          |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Phishing / malware links            | Safety scan on create ([§14.4](#144-url-safety)); `blocked` status; report-abuse link on error pages                |
-| Mass link creation by spammers      | Email verification required before creating links; per-user + per-IP rate limits; new-account caps                  |
-| Redirect loops / chaining           | Reject destinations on our own short domains; reject other known shorteners (configurable)                          |
-| Dangerous schemes                   | Allow only `http:` / `https:`; reject `javascript:`, `data:`, `file:`                                               |
-| SSRF on metadata fetch              | Resolve DNS and block private, loopback, link-local, and metadata IP ranges; 3 s timeout; 1 MB cap; max 3 redirects |
-| Credential stuffing                 | Better Auth rate limiting on auth endpoints; Turnstile on signup/login                                              |
-| API key leakage                     | Keys hashed at rest; shown once; prefix for identification (`pk_live_`); revocation; last-used tracking             |
-| Cross-tenant data access            | `workspace_id` on every query; integration tests for tenant isolation                                               |
-| Password-protected link brute force | Rate limit per code + IP; bcrypt/argon2 hashes                                                                      |
-| CSRF                                | Better Auth origin checks; `SameSite=Lax` cookies; server fns are POST                                              |
-| XSS                                 | React escaping; strict CSP on app; never render user HTML                                                           |
-| Secrets                             | Wrangler secrets per environment; nothing in repo; `.dev.vars` git-ignored                                          |
+| Threat                              | Mitigation                                                                                                                                                                                                                                     |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phishing / malware links            | Safety scan on create ([§14.4](#144-url-safety)); `blocked` status; report-abuse link on error pages                                                                                                                                           |
+| Mass link creation by spammers      | Email verification required before creating links; per-user + per-IP rate limits; new-account caps                                                                                                                                             |
+| Redirect loops / chaining           | Reject destinations on our own short domains; reject other known shorteners (configurable)                                                                                                                                                     |
+| Dangerous schemes                   | Allow only `http:` / `https:`; reject `javascript:`, `data:`, `file:`                                                                                                                                                                          |
+| SSRF on metadata fetch              | Block private/local hosts and IP ranges, re-checked on every redirect (max 3); 3 s budget; 512 KB cap; 10/min per user. Workers can't resolve DNS, so Cloudflare's egress is the backstop ([ADR 0006](adr/0006-ssrf-safe-metadata-prefill.md)) |
+| Credential stuffing                 | Better Auth rate limiting on auth endpoints; Turnstile on signup/login                                                                                                                                                                         |
+| API key leakage                     | Keys hashed at rest; shown once; prefix for identification (`pk_live_`); revocation; last-used tracking                                                                                                                                        |
+| Cross-tenant data access            | `workspace_id` on every query; integration tests for tenant isolation                                                                                                                                                                          |
+| Password-protected link brute force | Rate limit per code + IP; bcrypt/argon2 hashes                                                                                                                                                                                                 |
+| CSRF                                | Better Auth origin checks; `SameSite=Lax` cookies; server fns are POST                                                                                                                                                                         |
+| XSS                                 | React escaping; strict CSP on app; never render user HTML                                                                                                                                                                                      |
+| Secrets                             | Wrangler secrets per environment; nothing in repo; `.dev.vars` git-ignored                                                                                                                                                                     |
 
 **Rate limits (v1 defaults):**
 
@@ -624,6 +626,7 @@ URL shorteners are a **phishing magnet**. Abuse handling is a feature, not an af
 | Link create per user  | 60 / min, 1000 / day |
 | API per key           | 600 / min            |
 | Auth endpoints per IP | 10 / min             |
+| Metadata prefill/user | 10 / min (live)      |
 | AI ask per workspace  | 50 / day             |
 
 Implemented with the Workers Rate Limiting binding. A Durable Object counter is used where exact limits are needed (daily quotas).
@@ -671,7 +674,7 @@ Coverage target: at least 80% on `packages/core` and services; no target for UI.
 
 ## 19. CI/CD & environments
 
-**Environments:** `local` → `preview` (per PR) → `staging` → `production`.
+**Environments:** `local` → `preview` (per PR) → `staging` → `production`. Today only `local` and `production` exist: local reads `apps/web/.env`, and production reads secrets on the `pulse-web` worker, so no per-environment wrangler config is needed yet. `staging` arrives with the M2 bindings.
 
 | Env        | Workers                     | Database                           | Domain                       |
 | ---------- | --------------------------- | ---------------------------------- | ---------------------------- |
@@ -731,25 +734,25 @@ At hobby / portfolio scale (≤ 1M redirects/month), the target is **$0–5/mont
 
 ## 22. Decision log
 
-Each decision gets an ADR in `docs/adr/` once **ACCEPTED**. Statuses: `PROPOSED`, `ACCEPTED`, `REJECTED`, `SUPERSEDED`.
+Each decision gets an ADR in [`docs/adr/`](adr/README.md) once **ACCEPTED**. Statuses: `PROPOSED`, `ACCEPTED`, `REJECTED`, `SUPERSEDED`. Milestone-level decisions (e.g. M1 D1–D8) are recorded there too: 0003–0007.
 
-| ID  | Decision                     | Options                                                                                           | Recommendation                                                                                                                         | Status   |
-| --- | ---------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| D1  | Separate redirector worker?  | (a) keep `/r/:code` in the web app, (b) dedicated worker on the short domain                      | **(b)**: isolation, speed, clean read/write split                                                                                      | PROPOSED |
-| D2  | Link cache                   | (a) none, (b) Workers KV, (c) Cache API, (d) Durable Objects                                      | **(b) KV**: global reads, simple; Cache API is per-colo only                                                                           | PROPOSED |
-| D3  | Analytics store              | (a) Postgres partitioned + rollups, (b) Workers Analytics Engine, (c) ClickHouse/Tinybird         | **(a) for v1**: shows real data-engineering skills, one DB, cheap. Revisit at ~10M events/month → (c)                                  | PROPOSED |
-| D4  | DB connectivity from Workers | (a) Neon HTTP driver, (b) Hyperdrive + `postgres`                                                 | **(b)** for web + worker (pooling, transactions); (a) acceptable in redirector for a single query                                      | PROPOSED |
-| D5  | Short code matching          | (a) case-sensitive base62, (b) case-insensitive, casing preserved for display                     | **(b)**: `lower(short_code)` unique index; generated codes are lowercase base36                                                        | ACCEPTED |
-| D6  | Ownership model + auth       | (a) `user_id`, (b) `workspace_id` via Better Auth organizations; self-hosted vs Neon Managed Auth | **(b)** on **self-hosted Better Auth**. Neon Managed Auth doesn't support TanStack Start SSR and only partially supports organizations | ACCEPTED |
-| D7  | Default redirect status      | 301 / 302 / 307                                                                                   | **302** (analytics accuracy), configurable per link                                                                                    | PROPOSED |
-| D8  | AI provider                  | Workers AI / OpenAI / Anthropic / Gemini, all via AI Gateway + AI SDK                             | **AI SDK + AI Gateway**, small model for cheap tasks, strong model for Ask Pulse                                                       | PROPOSED |
-| D9  | NL analytics approach        | (a) text-to-SQL, (b) typed tool calling                                                           | **(b)**: safe, tenant-scoped, testable                                                                                                 | PROPOSED |
-| D10 | Unique visitor counting      | (a) exact `COUNT(DISTINCT)` on raw, (b) HLL sketches in rollups                                   | **(a) for v1** (≤90-day windows); (b) when raw retention is too expensive                                                              | PROPOSED |
-| D11 | Domains                      | Short domain name; app on subdomain                                                               | Buy a short domain (e.g. `pulse.ink`, `pls.to`); app at `app.` subdomain                                                               | PROPOSED |
-| D12 | API framework for `/api/v1`  | (a) TanStack Start server routes, (b) Hono mounted inside web                                     | **(a)** first; switch to Hono only if middleware ergonomics hurt                                                                       | PROPOSED |
-| D13 | MCP server in v1?            | yes / v1.1                                                                                        | **Stretch v1**: high signal for "AI era", low effort once services + API keys exist                                                    | PROPOSED |
-| D14 | Email provider               | Resend / Postmark / SES                                                                           | **Resend** + React Email                                                                                                               | PROPOSED |
-| D15 | Soft delete                  | hard delete / `deleted_at`                                                                        | **`deleted_at`** + purge after 30 days (undo + audit)                                                                                  | PROPOSED |
+| ID  | Decision                     | Options                                                                                           | Recommendation                                                                                                                                                                                        | Status   |
+| --- | ---------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| D1  | Separate redirector worker?  | (a) keep `/r/:code` in the web app, (b) dedicated worker on the short domain                      | **(b)**: isolation, speed, clean read/write split                                                                                                                                                     | PROPOSED |
+| D2  | Link cache                   | (a) none, (b) Workers KV, (c) Cache API, (d) Durable Objects                                      | **(b) KV**: global reads, simple; Cache API is per-colo only                                                                                                                                          | PROPOSED |
+| D3  | Analytics store              | (a) Postgres partitioned + rollups, (b) Workers Analytics Engine, (c) ClickHouse/Tinybird         | **(a) for v1**: shows real data-engineering skills, one DB, cheap. Revisit at ~10M events/month → (c)                                                                                                 | PROPOSED |
+| D4  | DB connectivity from Workers | (a) Neon HTTP driver, (b) Hyperdrive + `postgres`                                                 | **(b)** for web + worker (pooling, transactions); (a) acceptable in redirector for a single query                                                                                                     | PROPOSED |
+| D5  | Short code matching          | (a) case-sensitive base62, (b) case-insensitive, casing preserved for display                     | **(b)**: `lower(short_code)` unique index; generated codes are lowercase base36. [ADR 0001](adr/0001-case-insensitive-short-codes.md)                                                                 | ACCEPTED |
+| D6  | Ownership model + auth       | (a) `user_id`, (b) `workspace_id` via Better Auth organizations; self-hosted vs Neon Managed Auth | **(b)** on **self-hosted Better Auth**. Neon Managed Auth doesn't support TanStack Start SSR and only partially supports organizations. [ADR 0002](adr/0002-workspaces-on-self-hosted-better-auth.md) | ACCEPTED |
+| D7  | Default redirect status      | 301 / 302 / 307                                                                                   | **302** (analytics accuracy), configurable per link                                                                                                                                                   | PROPOSED |
+| D8  | AI provider                  | Workers AI / OpenAI / Anthropic / Gemini, all via AI Gateway + AI SDK                             | **AI SDK + AI Gateway**, small model for cheap tasks, strong model for Ask Pulse                                                                                                                      | PROPOSED |
+| D9  | NL analytics approach        | (a) text-to-SQL, (b) typed tool calling                                                           | **(b)**: safe, tenant-scoped, testable                                                                                                                                                                | PROPOSED |
+| D10 | Unique visitor counting      | (a) exact `COUNT(DISTINCT)` on raw, (b) HLL sketches in rollups                                   | **(a) for v1** (≤90-day windows); (b) when raw retention is too expensive                                                                                                                             | PROPOSED |
+| D11 | Domains                      | Short domain name; app on subdomain                                                               | Buy a short domain (e.g. `pulse.ink`, `pls.to`); app at `app.` subdomain                                                                                                                              | PROPOSED |
+| D12 | API framework for `/api/v1`  | (a) TanStack Start server routes, (b) Hono mounted inside web                                     | **(a)** first; switch to Hono only if middleware ergonomics hurt                                                                                                                                      | PROPOSED |
+| D13 | MCP server in v1?            | yes / v1.1                                                                                        | **Stretch v1**: high signal for "AI era", low effort once services + API keys exist                                                                                                                   | PROPOSED |
+| D14 | Email provider               | Resend / Postmark / SES                                                                           | **Resend** + React Email                                                                                                                                                                              | PROPOSED |
+| D15 | Soft delete                  | hard delete / `deleted_at`                                                                        | **`deleted_at`**, codes stay reserved, no purge or undo in v1. [ADR 0003](adr/0003-immutable-codes-and-soft-delete.md)                                                                                | ACCEPTED |
 
 ---
 
@@ -758,18 +761,22 @@ Each decision gets an ADR in `docs/adr/` once **ACCEPTED**. Statuses: `PROPOSED`
 ### M0 — Foundations (week 1)
 
 - ~~Workspace ownership, short code rules, lazy env/DB/auth, CI~~ (done).
-- Per-environment wrangler config (`env.staging`, `env.production`) and secrets via `wrangler secret put`.
-- Extract `packages/db` and `packages/core`.
+- ~~Production secrets via `wrangler secret put` on the `pulse-web` worker~~ (done).
 
-### M1 — Links done right (week 2)
+### M1 — Links done right (3–4 days)
 
-- Full link CRUD, tags, UTM builder, QR codes, expiration, password links, soft delete.
-- Metadata fetch with SSRF protection.
-- KV write-through.
+Detailed spec: [milestones/M1-links.md](milestones/M1-links.md). Implemented; pending manual acceptance testing.
+
+- ~~Edit, disable/enable, soft delete; search + cursor pagination~~ (done).
+- ~~QR code download per link; visitor status pages (404 / 410)~~ (done).
+- ~~Metadata prefill with SSRF protection and a per-user rate limit~~ (done).
+- Tags, UTM builder, archive, and password links move to post-v1.
 
 ### M2 — Edge redirector + pipeline (weeks 3–4)
 
-- `apps/redirector` with KV, negative caching, error pages, and click capture into the queue.
+- Extract `packages/db` (schema, migrations, client) and `packages/core` (`features/links/lib`, bot/referrer helpers) once the redirector and worker need them.
+- Per-environment wrangler config (`env.staging`), added alongside the first KV / Queue / Hyperdrive bindings, since binding IDs differ per environment.
+- `apps/redirector` with KV (write-through from the web app on create/update/delete), negative caching, error pages, and click capture into the queue.
 - `apps/worker` consumer: enrichment, bot detection, idempotent batch insert, DLQ.
 - Partitioned `click_event`, rollups, retention cron.
 - k6 load test, with numbers in the README.

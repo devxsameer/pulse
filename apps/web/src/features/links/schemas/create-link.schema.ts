@@ -5,6 +5,7 @@ import {
   CUSTOM_SHORT_CODE_MIN_LENGTH,
   validateCustomShortCode,
 } from "../lib/short-code";
+import { ASSET_URL_MAX_LENGTH } from "../lib/html-metadata";
 
 const shortCodeMessages = {
   length: `Use ${CUSTOM_SHORT_CODE_MIN_LENGTH}–${CUSTOM_SHORT_CODE_MAX_LENGTH} characters`,
@@ -13,21 +14,35 @@ const shortCodeMessages = {
   reserved: "This short code is reserved",
 } as const;
 
+const assetUrlSchema = z
+  .string()
+  .trim()
+  .max(ASSET_URL_MAX_LENGTH)
+  .refine((value) => value === "" || isHttpsUrl(value), {
+    message: "Only HTTPS image URLs are allowed",
+  });
+
+function isHttpsUrl(value: string) {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 // Every field is a string because that's what form inputs produce;
 // the service normalizes empty strings to null.
 export const createLinkSchema = z.object({
-  destinationUrl: z
-    .url("Enter a valid destination URL")
-    .refine(
-      (url) => {
-        const protocol = new URL(url).protocol;
+  destinationUrl: z.url("Enter a valid destination URL").refine(
+    (url) => {
+      const protocol = new URL(url).protocol;
 
-        return protocol === "http:" || protocol === "https:";
-      },
-      {
-        message: "Only HTTP and HTTPS URLs are allowed",
-      },
-    ),
+      return protocol === "http:" || protocol === "https:";
+    },
+    {
+      message: "Only HTTP and HTTPS URLs are allowed",
+    },
+  ),
 
   shortCode: z
     .string()
@@ -53,6 +68,10 @@ export const createLinkSchema = z.object({
     .max(500, "Description must be at most 500 characters"),
 
   expiresAt: z.string(),
+
+  // Prefilled from fetchMetadataFn; the server only stores them, never fetches them.
+  faviconUrl: assetUrlSchema,
+  imageUrl: assetUrlSchema,
 });
 
 export type CreateLinkInput = z.infer<typeof createLinkSchema>;

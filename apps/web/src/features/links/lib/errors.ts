@@ -5,6 +5,13 @@ export class LinkConflictError extends Error {
   }
 }
 
+export class LinkNotFoundError extends Error {
+  constructor(message = "Link not found") {
+    super(message);
+    this.name = "LinkNotFoundError";
+  }
+}
+
 export class InvalidLinkError extends Error {
   constructor(message: string) {
     super(message);

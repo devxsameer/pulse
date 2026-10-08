@@ -1,7 +1,12 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useSuspenseInfiniteQuery } from "@tanstack/react-query";
 
-import { linksQueryOptions } from "./links.queries";
+import { linksInfiniteQueryOptions } from "./links.queries";
 
-export function useLinks() {
-  return useSuspenseQuery(linksQueryOptions());
+export function useLinks(q = "") {
+  const query = useSuspenseInfiniteQuery(linksInfiniteQueryOptions(q));
+
+  return {
+    ...query,
+    links: query.data.pages.flatMap((page) => page.items),
+  };
 }

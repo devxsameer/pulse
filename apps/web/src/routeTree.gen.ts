@@ -19,7 +19,6 @@ import { Route as RShortCodeRouteImport } from './routes/r/$shortCode'
 import { Route as AuthSignupRouteImport } from './routes/_auth/signup'
 import { Route as AuthLoginRouteImport } from './routes/_auth/login'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
-import { Route as AppQrCodesRouteImport } from './routes/_app/qr-codes'
 import { Route as AppLinksRouteImport } from './routes/_app/links'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppAnalyticsRouteImport } from './routes/_app/analytics'
@@ -73,11 +72,6 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRouteRoute,
 } as any)
-const AppQrCodesRoute = AppQrCodesRouteImport.update({
-  id: '/qr-codes',
-  path: '/qr-codes',
-  getParentRoute: () => AppRouteRoute,
-} as any)
 const AppLinksRoute = AppLinksRouteImport.update({
   id: '/links',
   path: '/links',
@@ -112,7 +106,6 @@ export interface FileRoutesByFullPath {
   '/analytics': typeof AppAnalyticsRoute
   '/dashboard': typeof AppDashboardRoute
   '/links': typeof AppLinksRoute
-  '/qr-codes': typeof AppQrCodesRoute
   '/settings': typeof AppSettingsRoute
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
@@ -127,7 +120,6 @@ export interface FileRoutesByTo {
   '/analytics': typeof AppAnalyticsRoute
   '/dashboard': typeof AppDashboardRoute
   '/links': typeof AppLinksRoute
-  '/qr-codes': typeof AppQrCodesRoute
   '/settings': typeof AppSettingsRoute
   '/login': typeof AuthLoginRoute
   '/signup': typeof AuthSignupRoute
@@ -145,7 +137,6 @@ export interface FileRoutesById {
   '/_app/analytics': typeof AppAnalyticsRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/links': typeof AppLinksRoute
-  '/_app/qr-codes': typeof AppQrCodesRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_auth/login': typeof AuthLoginRoute
   '/_auth/signup': typeof AuthSignupRoute
@@ -163,7 +154,6 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/dashboard'
     | '/links'
-    | '/qr-codes'
     | '/settings'
     | '/login'
     | '/signup'
@@ -178,7 +168,6 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/dashboard'
     | '/links'
-    | '/qr-codes'
     | '/settings'
     | '/login'
     | '/signup'
@@ -195,7 +184,6 @@ export interface FileRouteTypes {
     | '/_app/analytics'
     | '/_app/dashboard'
     | '/_app/links'
-    | '/_app/qr-codes'
     | '/_app/settings'
     | '/_auth/login'
     | '/_auth/signup'
@@ -286,13 +274,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/_app/qr-codes': {
-      id: '/_app/qr-codes'
-      path: '/qr-codes'
-      fullPath: '/qr-codes'
-      preLoaderRoute: typeof AppQrCodesRouteImport
-      parentRoute: typeof AppRouteRoute
-    }
     '/_app/links': {
       id: '/_app/links'
       path: '/links'
@@ -336,7 +317,6 @@ interface AppRouteRouteChildren {
   AppAnalyticsRoute: typeof AppAnalyticsRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppLinksRoute: typeof AppLinksRoute
-  AppQrCodesRoute: typeof AppQrCodesRoute
   AppSettingsRoute: typeof AppSettingsRoute
 }
 
@@ -345,7 +325,6 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppAnalyticsRoute: AppAnalyticsRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppLinksRoute: AppLinksRoute,
-  AppQrCodesRoute: AppQrCodesRoute,
   AppSettingsRoute: AppSettingsRoute,
 }
 

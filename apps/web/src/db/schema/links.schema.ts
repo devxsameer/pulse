@@ -34,6 +34,10 @@ export const links = pgTable(
 
     description: text("description"),
 
+    faviconUrl: text("favicon_url"),
+
+    imageUrl: text("image_url"),
+
     isActive: boolean("is_active").default(true).notNull(),
 
     expiresAt: timestamp("expires_at", {
@@ -52,17 +56,23 @@ export const links = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date())
       .notNull(),
+
+    // Soft delete: deleted links stop resolving but keep their short code reserved.
+    deletedAt: timestamp("deleted_at", {
+      withTimezone: true,
+    }),
   },
   (table) => [
     // Codes keep the casing they were created with but resolve case-insensitively.
+    // Covers deleted rows too, so a deleted code can't be re-registered.
     uniqueIndex("links_short_code_lower_unique_idx").on(
       sql`lower(${table.shortCode})`,
     ),
 
-    index("links_workspace_created_at_idx").on(
-      table.workspaceId,
-      table.createdAt,
-    ),
+    // Default list order + cursor pagination over live links.
+    index("links_workspace_live_created_idx")
+      .on(table.workspaceId, table.createdAt.desc(), table.id.desc())
+      .where(sql`${table.deletedAt} is null`),
 
     index("links_created_by_idx").on(table.createdBy),
   ],

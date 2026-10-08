@@ -1,20 +1,27 @@
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions } from "@tanstack/react-query";
 
-import { getLinksFn } from "../server/links.functions";
+import { listLinksFn } from "../server/links.functions";
 
 export const linkKeys = {
   all: ["links"] as const,
 
-  list: () => [...linkKeys.all, "list"] as const,
+  lists: () => [...linkKeys.all, "list"] as const,
 
-  detail: (linkId: string) => [...linkKeys.all, "detail", linkId] as const,
+  list: (q: string) => [...linkKeys.lists(), { q }] as const,
 };
 
-export const linksQueryOptions = () =>
-  queryOptions({
-    queryKey: linkKeys.list(),
+export const linksInfiniteQueryOptions = (q = "") =>
+  infiniteQueryOptions({
+    queryKey: linkKeys.list(q),
 
-    queryFn: () => getLinksFn(),
+    queryFn: ({ pageParam }) =>
+      listLinksFn({
+        data: { q: q || undefined, cursor: pageParam },
+      }),
+
+    initialPageParam: undefined as string | undefined,
+
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
 
     staleTime: 1000 * 30,
   });

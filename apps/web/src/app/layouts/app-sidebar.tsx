@@ -4,7 +4,6 @@ import {
   ExternalLink,
   LayoutDashboard,
   Link2,
-  QrCode,
   Settings,
   Zap,
 } from "lucide-react";
@@ -34,11 +33,6 @@ const navigation = [
     label: "AI Insights",
     to: "/ai-insights",
     icon: Bot,
-  },
-  {
-    label: "QR Codes",
-    to: "/qr-codes",
-    icon: QrCode,
   },
 ] as const;
 
