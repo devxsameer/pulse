@@ -7,7 +7,7 @@
 | Status       | **Implemented**, pending manual acceptance testing ([§12](#12-acceptance-criteria)) |
 | Parent doc   | [ARCHITECTURE.md](../ARCHITECTURE.md) (§2 scope, §9 data model, §15 security)       |
 | Depends on   | M0 (workspaces, short code rules, CI) ✅                                            |
-| Next         | M2 (redirect fast path + click pipeline)                                            |
+| Next         | [M2](M2-redirects-analytics.md) (redirect fast path + click pipeline)               |
 | Estimate     | 3–4 days                                                                            |
 | Last updated | 2026-10-08                                                                          |
 

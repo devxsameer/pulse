@@ -781,6 +781,8 @@ Detailed spec: [milestones/M1-links.md](milestones/M1-links.md). Implemented; pe
 
 ### M2 — Redirect fast path + click pipeline (weeks 3–4)
 
+Detailed spec: [milestones/M2-redirects-analytics.md](milestones/M2-redirects-analytics.md). It runs entirely on free tiers: clicks go to **Workers Analytics Engine**, and an hourly cron Worker rolls them up into Postgres, replacing the Queue + partitioned `click_event` design (supersedes D3). This section and the decision log get updated in M2's docs task.
+
 - Redirect fast path in `pulse-web` ([ADR 0008](adr/0008-redirect-fast-path-in-web-worker.md)): custom Worker entry (`src/server.ts`), import-restricted `src/edge/`, KV lookup with write-through from the app on create/update/disable/delete, negative caching, status pages, and `waitUntil` click capture into the queue. Replaces the `/r/$shortCode` route.
 - Per-environment wrangler config (`env.staging`), added alongside the first KV / Queue / Hyperdrive bindings, since binding IDs differ per environment.
 - Extract `packages/db` (schema, migrations, client) and the bot/UA/referrer helpers into `packages/core`, because `apps/worker` needs them. Redirects don't need extraction.
