@@ -24,5 +24,5 @@ Visitors hitting a missing, disabled, or expired link got a plain-text 404. Thes
 ## Consequences
 
 - Deleted links are indistinguishable from never-existing ones, so deletion leaks nothing.
-- The templates move unchanged into the redirector worker in M2.
+- The redirect fast path ([ADR 0008](0008-redirect-fast-path-in-web-worker.md)) reuses the templates unchanged in M2.
 - A "report abuse" link on these pages comes with abuse handling in M6.

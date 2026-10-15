@@ -6,7 +6,7 @@
 | ------------ | ----------------------------------------------------------- |
 | Status       | **Draft** — decisions marked `PROPOSED` are open for review |
 | Owner        | Sameer Ali ([@devxsameer](https://github.com/devxsameer))   |
-| Last updated | 2026-10-08                                                  |
+| Last updated | 2026-10-15                                                  |
 | Scope        | v1 (first public, production release)                       |
 
 ---
@@ -92,7 +92,7 @@ What exists today:
 - Self-hosted Better Auth (email/password + GitHub OAuth) with the `organization` plugin. Every user gets a personal workspace, which becomes the session's active workspace.
 - `links` owned by `workspace_id` (with `created_by` for the author). Short codes are case-insensitively unique, reserved words are blocked, and inserts catch unique violations instead of checking first.
 - Link management (M1): create, edit, disable/enable, and soft delete; `ILIKE` search and cursor pagination with Load more; per-link QR dialog (PNG/SVG, in the browser); title/description/favicon prefill on paste through an SSRF-guarded, rate-limited server fetch. Layering is server function → service (typed errors, `LinkView` mapper) → repository (workspace-scoped, `deleted_at IS NULL`).
-- A `/r/$shortCode` route that does a 302 by querying Postgres directly, with static 404/410 status pages for not-found, disabled, and expired links. It gets replaced by the edge redirector in M2.
+- A `/r/$shortCode` route that does a 302 by querying Postgres directly, with static 404/410 status pages for not-found, disabled, and expired links. It moves to the KV-backed redirect fast path in M2 ([ADR 0008](adr/0008-redirect-fast-path-in-web-worker.md)).
 - Dashboard UI shell (shadcn) with placeholder analytics and AI insight cards.
 - Vitest unit tests for link logic (short codes, normalization, SSRF guard, metadata parser, status pages), and GitHub Actions CI running lint, typecheck, tests, a migration-sync check, and build.
 - Accepted decisions are recorded in [`docs/adr/`](adr/README.md).
@@ -101,11 +101,12 @@ What exists today:
 
 ## 4. System overview
 
-Pulse is split into **three deployable units** that share code through packages:
+Pulse is **two deployable Workers** that share code through packages:
 
-1. **`redirector`** is a tiny Cloudflare Worker on the short domain (e.g. `pulse.ink`). It does exactly one thing: resolve a code to a destination and redirect, as fast as possible.
-2. **`web`** is the TanStack Start app on the app domain (e.g. `app.pulse.ink`). It hosts the dashboard, marketing site, auth, server functions, and the public REST API under `/api/v1`.
-3. **`worker`** is a background Worker. It consumes the click queue, runs cron jobs (rollups, AI insights, cleanup), and does async jobs such as metadata fetching and safety scans.
+1. **`web`** (`pulse-web`) serves both domains:
+   - the **redirect fast path**: a small fetch handler that runs _before_ the app for short-link requests (the short domain, e.g. `pulse.ink/:code`, and `/r/:code` on the app domain). It resolves a code via KV and redirects, and never loads React, auth, or the router.
+   - the **TanStack Start app** on the app domain (e.g. `app.pulse.ink`): dashboard, marketing site, auth, server functions, and the public REST API under `/api/v1`. Lazy-loaded for every non-redirect request.
+2. **`worker`** is a background Worker. It consumes the click queue, runs cron jobs (rollups, AI insights, cleanup), and does async jobs such as safety scans.
 
 ```mermaid
 flowchart LR
@@ -119,8 +120,10 @@ flowchart LR
     end
 
     subgraph Cloudflare["Cloudflare edge"]
-      R[redirector Worker<br/>pulse.ink/:code]
-      W[web Worker<br/>app.pulse.ink<br/>TanStack Start]
+      subgraph WEB["pulse-web Worker"]
+        R[redirect fast path<br/>pulse.ink/:code]
+        W[TanStack Start app<br/>app.pulse.ink<br/>lazy-loaded]
+      end
       BG[worker<br/>queue consumer + cron]
       KV[(Workers KV<br/>link cache)]
       Q[[Queue<br/>click-events]]
@@ -152,12 +155,13 @@ flowchart LR
     HD --> PG
 ```
 
-**Why split `redirector` from `web`?**
+**Why a fast path instead of a separate redirector Worker?** ([ADR 0008](adr/0008-redirect-fast-path-in-web-worker.md))
 
-- **Blast radius.** A bad dashboard deploy can't break every short link on the internet.
-- **Cold start and bundle size.** The redirector bundle is a few KB. The SSR app bundle is MBs.
-- **Independent scaling and limits.** The two have different rate limits, caching, and observability.
-- **Interview story.** It shows a clear read path vs. write path separation (CQRS-lite).
+- **Proven pattern.** [Dub](https://github.com/dubinc/dub) serves production redirects from the same Next.js app as its dashboard, via edge middleware that runs before any page code, with a Redis cache and `waitUntil` click capture. The fast path is the Workers equivalent.
+- **Still a clean read/write split.** The fast path is read-only (KV → Postgres fallback) and only emits events; writes go through the app and the queue consumer (CQRS-lite).
+- **Cheap to ship.** One deploy and one config, with no package extraction for redirects.
+- **Split when measured, not assumed.** `src/edge/` is import-restricted (no React, TanStack, or auth), so moving it into its own Worker is a config change. Triggers: redirect p95 or cold starts over the [§20](#20-performance-budgets--slos) budgets, an app deploy breaking redirects, or redirects needing different limits or bindings.
+- **Accepted risk.** A bad app deploy can break redirects. CI gates and gradual deployments (M6) mitigate it.
 
 ---
 
@@ -195,8 +199,10 @@ Target layout. Packages are extracted only when a second app needs them (M2); un
 ```
 pulse/
 ├── apps/
-│   ├── web/                    # TanStack Start: dashboard, marketing, auth, /api/v1, MCP
+│   ├── web/                    # one Worker: redirect fast path + TanStack Start (dashboard, marketing, auth, /api/v1, MCP)
 │   │   └── src/
+│   │       ├── server.ts       # Worker entry: short-link requests → edge/, everything else → lazy app
+│   │       ├── edge/           # redirect fast path (import-restricted: no React/TanStack/auth); splittable into its own Worker
 │   │       ├── routes/         # file routes (thin: parse → call service → render)
 │   │       ├── features/       # feature modules: links, analytics, ai, auth, workspaces, api-keys
 │   │       │   └── <feature>/
@@ -207,7 +213,6 @@ pulse/
 │   │       │       └── server/     # *.functions.ts (server fns), *.service.ts, *.repository.ts
 │   │       ├── components/ui/  # shadcn
 │   │       └── lib/
-│   ├── redirector/             # edge redirect Worker (no framework, just fetch handler)
 │   └── worker/                 # queue consumer + cron + async jobs
 ├── packages/
 │   ├── db/                     # drizzle schema, migrations, client factory, repositories
@@ -239,13 +244,13 @@ Services never import from `routes`, and repositories never import from services
 
 ## 7. The redirect hot path
 
-This is the most important code in the system. It must be **fast, correct, and never blocked by analytics.**
+This is the most important code in the system. It must be **fast, correct, and never blocked by analytics.** It runs in `pulse-web`'s Worker entry before the app is loaded ([ADR 0008](adr/0008-redirect-fast-path-in-web-worker.md)).
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant B as Browser
-    participant R as redirector
+    participant R as redirect fast path
     participant KV as Workers KV
     participant DB as Postgres (Hyperdrive)
     participant Q as Queue
@@ -286,7 +291,8 @@ sequenceDiagram
 - **Negative caching.** Cache "not found" for 60 s to absorb scanners and typo storms.
 - **Status codes.** Default to **302**, because 301s get cached by browsers forever and kill analytics accuracy. Allow 301/307/308 per link.
 - **Response headers.** Set `Cache-Control: private, no-store` (needed for analytics correctness), `Referrer-Policy: unsafe-url` only when the link opts into referrer passthrough, and `X-Robots-Tag: noindex`.
-- **Error pages.** Expired, disabled, not-found, and password links render tiny static HTML pages from the redirector itself (no SSR app round-trip).
+- **Error pages.** Expired, disabled, not-found, and password links render the tiny static HTML pages from `lib/status-pages.ts` in the fast path itself (no SSR app round-trip; [ADR 0007](adr/0007-static-visitor-status-pages.md)).
+- **Keep the app out of the hot path.** `src/edge/` never imports React, TanStack, Better Auth, or `features/*/server` (enforced by ESLint). The app module is only imported for non-redirect requests.
 - **Password-protected links.** Show a form; on POST, verify against `passwordHash` and set a short-lived signed cookie scoped to that code.
 - **Click capture is fire-and-forget.** `ctx.waitUntil(env.CLICKS.send(event))`. If the queue send fails, log it and still redirect, because availability beats analytics completeness.
 - **Bots.** Social preview crawlers (Twitterbot, facebookexternalhit, Slackbot, Discordbot, LinkedInBot) still get redirected but are tagged `isBot=true`. They count in "previews" but not in "clicks".
@@ -297,7 +303,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    R[redirector] -->|ClickEvent| Q[[click-events queue]]
+    R[redirect fast path] -->|ClickEvent| Q[[click-events queue]]
     Q -->|batch ≤100 / 5s| C[worker consumer]
     C -->|enrich: UA parse, bot score, dedupe| C
     C -->|INSERT batch| E[(click_events<br/>partitioned by month)]
@@ -309,7 +315,7 @@ flowchart LR
     H & D --> DASH[dashboard + API + AI tools]
 ```
 
-### Event shape (produced by the redirector)
+### Event shape (produced by the redirect fast path)
 
 ```ts
 type ClickEvent = {
@@ -645,28 +651,28 @@ Implemented with the Workers Rate Limiting binding. A Durable Object counter is 
 
 ## 17. Observability
 
-- **Structured JSON logs** from all three workers: `{ level, msg, requestId, workspaceId?, linkId?, latencyMs, ... }`, via Workers Logs (with Logpush later).
+- **Structured JSON logs** from both Workers: `{ level, msg, requestId, workspaceId?, linkId?, latencyMs, ... }`, via Workers Logs (with Logpush later).
 - **Request IDs:** use `cf-ray`, propagated into the queue events and API error responses.
 - **Sentry** (`@sentry/cloudflare`, `@sentry/react`) for errors and traces, with release tagging from CI.
 - **Key metrics** (Workers Analytics Engine as a metrics sink, cheap and SQL-queryable):
-  - Redirector: KV hit rate, p50/p95/p99 latency, 404 rate, queue send failures.
+  - Redirect fast path: KV hit rate, p50/p95/p99 latency, 404 rate, queue send failures.
   - Pipeline: queue backlog, consumer batch size, DLQ depth, rollup lag (now minus watermark).
   - AI: tokens, cost, latency, and error rate per feature (from the AI Gateway).
 - **Health:** `GET /healthz` on each worker. An external uptime check (Better Stack / UptimeRobot) feeds a public status page.
-- **Alerts:** DLQ depth above 0, rollup lag over 15 minutes, redirector 5xx rate over 0.5%, and error spikes.
+- **Alerts:** DLQ depth above 0, rollup lag over 15 minutes, redirect 5xx rate over 0.5%, and error spikes.
 
 ---
 
 ## 18. Testing strategy
 
-| Level       | Tooling                                    | What                                                                                                          |
-| ----------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| Unit        | Vitest                                     | `packages/core`: short codes, URL normalization, UA/bot parsing, referrer normalization                       |
-| Integration | Vitest + `@cloudflare/vitest-pool-workers` | Redirector with real KV/Queue bindings (Miniflare); services against a Neon branch or local Postgres (Docker) |
-| Tenancy     | Vitest                                     | Every service method rejects cross-workspace access                                                           |
-| E2E         | Playwright                                 | Sign up → verify → create link → visit → see click in dashboard                                               |
-| Load        | k6                                         | Redirector at 1k RPS: p95 latency, KV hit rate, zero errors. Results are published in the README              |
-| AI          | Vitest + golden set                        | Tool routing correctness; schema-valid outputs                                                                |
+| Level       | Tooling                                    | What                                                                                                                  |
+| ----------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| Unit        | Vitest                                     | `packages/core`: short codes, URL normalization, UA/bot parsing, referrer normalization                               |
+| Integration | Vitest + `@cloudflare/vitest-pool-workers` | Redirect fast path with real KV/Queue bindings (Miniflare); services against a Neon branch or local Postgres (Docker) |
+| Tenancy     | Vitest                                     | Every service method rejects cross-workspace access                                                                   |
+| E2E         | Playwright                                 | Sign up → verify → create link → visit → see click in dashboard                                                       |
+| Load        | k6                                         | Redirects at 1k RPS: p95 latency, cold starts, KV hit rate, zero errors. Results are published in the README          |
+| AI          | Vitest + golden set                        | Tool routing correctness; schema-valid outputs                                                                        |
 
 Coverage target: at least 80% on `packages/core` and services; no target for UI.
 
@@ -707,17 +713,17 @@ flowchart LR
 
 ## 20. Performance budgets & SLOs
 
-| Metric                             | Target   |
-| ---------------------------------- | -------- |
-| Redirect server time, KV hit, p95  | < 20 ms  |
-| Redirect server time, KV miss, p95 | < 150 ms |
-| Redirect availability (monthly)    | 99.95%   |
-| Click → visible in dashboard (p95) | < 2 min  |
-| Dashboard TTFB (SSR), p95          | < 400 ms |
-| Dashboard LCP                      | < 2.0 s  |
-| API p95 (non-AI)                   | < 300 ms |
-| Ask Pulse time-to-first-token      | < 2 s    |
-| Redirector bundle size             | < 50 KB  |
+| Metric                                                 | Target   |
+| ------------------------------------------------------ | -------- |
+| Redirect server time, KV hit, p95                      | < 20 ms  |
+| Redirect server time, KV miss, p95                     | < 150 ms |
+| Redirect availability (monthly)                        | 99.95%   |
+| Click → visible in dashboard (p95)                     | < 2 min  |
+| Dashboard TTFB (SSR), p95                              | < 400 ms |
+| Dashboard LCP                                          | < 2.0 s  |
+| API p95 (non-AI)                                       | < 300 ms |
+| Ask Pulse time-to-first-token                          | < 2 s    |
+| Redirect fast-path module (`src/edge`, excl. lazy app) | < 50 KB  |
 
 ---
 
@@ -737,23 +743,23 @@ At hobby / portfolio scale (≤ 1M redirects/month), the target is **$0–5/mont
 
 Each decision gets an ADR in [`docs/adr/`](adr/README.md) once **ACCEPTED**. Statuses: `PROPOSED`, `ACCEPTED`, `REJECTED`, `SUPERSEDED`. Milestone-level decisions (e.g. M1 D1–D8) are recorded there too: 0003–0007.
 
-| ID  | Decision                     | Options                                                                                           | Recommendation                                                                                                                                                                                        | Status   |
-| --- | ---------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| D1  | Separate redirector worker?  | (a) keep `/r/:code` in the web app, (b) dedicated worker on the short domain                      | **(b)**: isolation, speed, clean read/write split                                                                                                                                                     | PROPOSED |
-| D2  | Link cache                   | (a) none, (b) Workers KV, (c) Cache API, (d) Durable Objects                                      | **(b) KV**: global reads, simple; Cache API is per-colo only                                                                                                                                          | PROPOSED |
-| D3  | Analytics store              | (a) Postgres partitioned + rollups, (b) Workers Analytics Engine, (c) ClickHouse/Tinybird         | **(a) for v1**: shows real data-engineering skills, one DB, cheap. Revisit at ~10M events/month → (c)                                                                                                 | PROPOSED |
-| D4  | DB connectivity from Workers | (a) Neon HTTP driver, (b) Hyperdrive + `postgres`                                                 | **(b)** for web + worker (pooling, transactions); (a) acceptable in redirector for a single query                                                                                                     | PROPOSED |
-| D5  | Short code matching          | (a) case-sensitive base62, (b) case-insensitive, casing preserved for display                     | **(b)**: `lower(short_code)` unique index; generated codes are lowercase base36. [ADR 0001](adr/0001-case-insensitive-short-codes.md)                                                                 | ACCEPTED |
-| D6  | Ownership model + auth       | (a) `user_id`, (b) `workspace_id` via Better Auth organizations; self-hosted vs Neon Managed Auth | **(b)** on **self-hosted Better Auth**. Neon Managed Auth doesn't support TanStack Start SSR and only partially supports organizations. [ADR 0002](adr/0002-workspaces-on-self-hosted-better-auth.md) | ACCEPTED |
-| D7  | Default redirect status      | 301 / 302 / 307                                                                                   | **302** (analytics accuracy), configurable per link                                                                                                                                                   | PROPOSED |
-| D8  | AI provider                  | Workers AI / OpenAI / Anthropic / Gemini, all via AI Gateway + AI SDK                             | **AI SDK + AI Gateway**, small model for cheap tasks, strong model for Ask Pulse                                                                                                                      | PROPOSED |
-| D9  | NL analytics approach        | (a) text-to-SQL, (b) typed tool calling                                                           | **(b)**: safe, tenant-scoped, testable                                                                                                                                                                | PROPOSED |
-| D10 | Unique visitor counting      | (a) exact `COUNT(DISTINCT)` on raw, (b) HLL sketches in rollups                                   | **(a) for v1** (≤90-day windows); (b) when raw retention is too expensive                                                                                                                             | PROPOSED |
-| D11 | Domains                      | Short domain name; app on subdomain                                                               | Buy a short domain (e.g. `pulse.ink`, `pls.to`); app at `app.` subdomain                                                                                                                              | PROPOSED |
-| D12 | API framework for `/api/v1`  | (a) TanStack Start server routes, (b) Hono mounted inside web                                     | **(a)** first; switch to Hono only if middleware ergonomics hurt                                                                                                                                      | PROPOSED |
-| D13 | MCP server in v1?            | yes / v1.1                                                                                        | **Stretch v1**: high signal for "AI era", low effort once services + API keys exist                                                                                                                   | PROPOSED |
-| D14 | Email provider               | Resend / Postmark / SES                                                                           | **Resend** + React Email                                                                                                                                                                              | PROPOSED |
-| D15 | Soft delete                  | hard delete / `deleted_at`                                                                        | **`deleted_at`**, codes stay reserved, no purge or undo in v1. [ADR 0003](adr/0003-immutable-codes-and-soft-delete.md)                                                                                | ACCEPTED |
+| ID  | Decision                     | Options                                                                                                                            | Recommendation                                                                                                                                                                                        | Status   |
+| --- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| D1  | Separate redirector worker?  | (a) normal route in the web app, (b) dedicated worker on the short domain, (c) fast path in the web Worker's entry, before the app | **(c)**, the Workers equivalent of Dub's edge middleware; split into (b) only when measurements or isolation needs demand it. [ADR 0008](adr/0008-redirect-fast-path-in-web-worker.md)                | ACCEPTED |
+| D2  | Link cache                   | (a) none, (b) Workers KV, (c) Cache API, (d) Durable Objects                                                                       | **(b) KV**: global reads, simple; Cache API is per-colo only                                                                                                                                          | PROPOSED |
+| D3  | Analytics store              | (a) Postgres partitioned + rollups, (b) Workers Analytics Engine, (c) ClickHouse/Tinybird                                          | **(a) for v1**: shows real data-engineering skills, one DB, cheap. Revisit at ~10M events/month → (c)                                                                                                 | PROPOSED |
+| D4  | DB connectivity from Workers | (a) Neon HTTP driver, (b) Hyperdrive + `postgres`                                                                                  | **(b)** for web + worker (pooling, transactions); (a) acceptable in the redirect fast path for a single query                                                                                         | PROPOSED |
+| D5  | Short code matching          | (a) case-sensitive base62, (b) case-insensitive, casing preserved for display                                                      | **(b)**: `lower(short_code)` unique index; generated codes are lowercase base36. [ADR 0001](adr/0001-case-insensitive-short-codes.md)                                                                 | ACCEPTED |
+| D6  | Ownership model + auth       | (a) `user_id`, (b) `workspace_id` via Better Auth organizations; self-hosted vs Neon Managed Auth                                  | **(b)** on **self-hosted Better Auth**. Neon Managed Auth doesn't support TanStack Start SSR and only partially supports organizations. [ADR 0002](adr/0002-workspaces-on-self-hosted-better-auth.md) | ACCEPTED |
+| D7  | Default redirect status      | 301 / 302 / 307                                                                                                                    | **302** (analytics accuracy), configurable per link                                                                                                                                                   | PROPOSED |
+| D8  | AI provider                  | Workers AI / OpenAI / Anthropic / Gemini, all via AI Gateway + AI SDK                                                              | **AI SDK + AI Gateway**, small model for cheap tasks, strong model for Ask Pulse                                                                                                                      | PROPOSED |
+| D9  | NL analytics approach        | (a) text-to-SQL, (b) typed tool calling                                                                                            | **(b)**: safe, tenant-scoped, testable                                                                                                                                                                | PROPOSED |
+| D10 | Unique visitor counting      | (a) exact `COUNT(DISTINCT)` on raw, (b) HLL sketches in rollups                                                                    | **(a) for v1** (≤90-day windows); (b) when raw retention is too expensive                                                                                                                             | PROPOSED |
+| D11 | Domains                      | Short domain name; app on subdomain                                                                                                | Buy a short domain (e.g. `pulse.ink`, `pls.to`); app at `app.` subdomain                                                                                                                              | PROPOSED |
+| D12 | API framework for `/api/v1`  | (a) TanStack Start server routes, (b) Hono mounted inside web                                                                      | **(a)** first; switch to Hono only if middleware ergonomics hurt                                                                                                                                      | PROPOSED |
+| D13 | MCP server in v1?            | yes / v1.1                                                                                                                         | **Stretch v1**: high signal for "AI era", low effort once services + API keys exist                                                                                                                   | PROPOSED |
+| D14 | Email provider               | Resend / Postmark / SES                                                                                                            | **Resend** + React Email                                                                                                                                                                              | PROPOSED |
+| D15 | Soft delete                  | hard delete / `deleted_at`                                                                                                         | **`deleted_at`**, codes stay reserved, no purge or undo in v1. [ADR 0003](adr/0003-immutable-codes-and-soft-delete.md)                                                                                | ACCEPTED |
 
 ---
 
@@ -773,14 +779,14 @@ Detailed spec: [milestones/M1-links.md](milestones/M1-links.md). Implemented; pe
 - ~~Metadata prefill with SSRF protection and a per-user rate limit~~ (done).
 - Tags, UTM builder, archive, and password links move to post-v1.
 
-### M2 — Edge redirector + pipeline (weeks 3–4)
+### M2 — Redirect fast path + click pipeline (weeks 3–4)
 
-- Extract `packages/db` (schema, migrations, client) and `packages/core` (`features/links/lib`, bot/referrer helpers) once the redirector and worker need them.
+- Redirect fast path in `pulse-web` ([ADR 0008](adr/0008-redirect-fast-path-in-web-worker.md)): custom Worker entry (`src/server.ts`), import-restricted `src/edge/`, KV lookup with write-through from the app on create/update/disable/delete, negative caching, status pages, and `waitUntil` click capture into the queue. Replaces the `/r/$shortCode` route.
 - Per-environment wrangler config (`env.staging`), added alongside the first KV / Queue / Hyperdrive bindings, since binding IDs differ per environment.
-- `apps/redirector` with KV (write-through from the web app on create/update/delete), negative caching, error pages, and click capture into the queue.
-- `apps/worker` consumer: enrichment, bot detection, idempotent batch insert, DLQ.
+- Extract `packages/db` (schema, migrations, client) and the bot/UA/referrer helpers into `packages/core`, because `apps/worker` needs them. Redirects don't need extraction.
+- `apps/worker` consumer: enrichment, bot detection, dedupe, idempotent batch insert, DLQ.
 - Partitioned `click_event`, rollups, retention cron.
-- k6 load test, with numbers in the README.
+- k6 load test (p95, cold starts, KV hit rate), with numbers and the ADR 0008 split criteria in the README.
 
 ### M3 — Analytics dashboard (week 5)
 
@@ -814,12 +820,13 @@ Custom domains (Cloudflare for SaaS), team invites UI, webhooks, geo/device targ
 
 Each item below is a concrete thing an interviewer can ask about, with a real answer behind it:
 
-1. **"How do you keep redirects fast?"** The edge worker, KV with negative caching, a fire-and-forget queue, and measured p95 numbers from k6.
-2. **"How do you handle at-least-once delivery?"** UUIDv7 event IDs, `ON CONFLICT DO NOTHING`, a DLQ, and watermark-based idempotent rollups.
-3. **"How do you scale analytics in Postgres?"** Monthly partitions, rollup tables, partition drops for retention, and a documented path to ClickHouse.
-4. **"How do you make AI safe and correct?"** Typed, tenant-scoped tools instead of text-to-SQL, evidence stored with every insight, evals in CI, and cost controls via AI Gateway.
-5. **"How do you design multi-tenant SaaS?"** Workspace scoping, role checks in services, and tenant-isolation tests.
-6. **"How do you prevent abuse?"** Safety scanning, SSRF protection, rate limits, Turnstile, and blocked status with takedown.
-7. **"How do you ship safely?"** Preview deploys with Neon branches, expand/contract migrations, gradual rollouts, and Sentry release tracking.
+1. **"How do you keep redirects fast?"** A fast path that runs before the app (the Workers take on Dub's edge middleware), KV with negative caching, fire-and-forget click capture, and measured p95 numbers from k6.
+2. **"Why not a separate redirect service?"** Studied Dub's single-app design, adopted it with an import-restricted module, and documented the measurable triggers for splitting it out ([ADR 0008](adr/0008-redirect-fast-path-in-web-worker.md)).
+3. **"How do you handle at-least-once delivery?"** UUIDv7 event IDs, `ON CONFLICT DO NOTHING`, a DLQ, and watermark-based idempotent rollups.
+4. **"How do you scale analytics in Postgres?"** Monthly partitions, rollup tables, partition drops for retention, and a documented path to ClickHouse (Dub uses Tinybird for exactly this).
+5. **"How do you make AI safe and correct?"** Typed, tenant-scoped tools instead of text-to-SQL, evidence stored with every insight, evals in CI, and cost controls via AI Gateway.
+6. **"How do you design multi-tenant SaaS?"** Workspace scoping, role checks in services, and tenant-isolation tests.
+7. **"How do you prevent abuse?"** Safety scanning, SSRF protection, rate limits, Turnstile, and blocked status with takedown.
+8. **"How do you ship safely?"** Preview deploys with Neon branches, expand/contract migrations, gradual rollouts, and Sentry release tracking.
 
 The README should lead with: a live demo link, a 60-second video, the architecture diagram from [§4](#4-system-overview), the load-test results table, and links to the ADRs.

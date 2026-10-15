@@ -7,7 +7,7 @@
 | Status       | **Implemented**, pending manual acceptance testing ([§12](#12-acceptance-criteria)) |
 | Parent doc   | [ARCHITECTURE.md](../ARCHITECTURE.md) (§2 scope, §9 data model, §15 security)       |
 | Depends on   | M0 (workspaces, short code rules, CI) ✅                                            |
-| Next         | M2 (edge redirector + click pipeline)                                               |
+| Next         | M2 (redirect fast path + click pipeline)                                            |
 | Estimate     | 3–4 days                                                                            |
 | Last updated | 2026-10-08                                                                          |
 
@@ -49,7 +49,7 @@ And a visitor hitting a not-found, expired, or disabled link gets a **proper pag
 | F5  | Metadata prefill     | On paste, fetch title + favicon (+ description, OG image) through an SSRF-safe server function  |
 | F6  | Visitor status pages | Minimal HTML pages for not found (404), expired (410), disabled (410)                           |
 
-Not in M1: analytics, KV cache, edge redirector (M2); public API (M4); AI features (M5); everything in [Post-v1](#10-post-v1).
+Not in M1: analytics, KV cache, redirect fast path (M2); public API (M4); AI features (M5); everything in [Post-v1](#10-post-v1).
 
 ---
 
@@ -65,7 +65,7 @@ Recorded as ADRs: D1–D2 → [0003](../adr/0003-immutable-codes-and-soft-delete
 | D4  | Search implementation                | **`ILIKE`** on short code, title, and destination URL. Add a `pg_trgm` index only when a workspace has thousands of links.                     | ACCEPTED |
 | D5  | QR generation                        | **In the browser** with the `qrcode` package: no server cost. A public QR endpoint can come with the API in M4.                                | ACCEPTED |
 | D6  | When is metadata fetched?            | **Only on paste**, to prefill the form. The user sees and can edit the result; saving never waits on a remote site.                            | ACCEPTED |
-| D7  | Status pages: how are they rendered? | **Static HTML strings** from the `/r` server handler: fast, no React, and the same templates move into the redirector in M2.                   | ACCEPTED |
+| D7  | Status pages: how are they rendered? | **Static HTML strings** from the `/r` server handler: fast, no React, and the M2 redirect fast path reuses the same templates.                 | ACCEPTED |
 | D8  | Disabled link: 410 or 404?           | **410 "This link has been disabled"**: honest for visitors; the owner chose to disable it.                                                     | ACCEPTED |
 
 ---

@@ -11,5 +11,6 @@ One file per accepted decision. The full decision log, including open proposals,
 | [0005](0005-client-side-qr-codes.md)                  | QR codes generated in the browser              | M1 D5     | Accepted |
 | [0006](0006-ssrf-safe-metadata-prefill.md)            | SSRF-safe metadata prefill on paste            | M1 D6, §8 | Accepted |
 | [0007](0007-static-visitor-status-pages.md)           | Static visitor status pages; 410 for disabled  | M1 D7, D8 | Accepted |
+| [0008](0008-redirect-fast-path-in-web-worker.md)      | Redirect fast path inside the web Worker       | ARCH D1   | Accepted |
 
 Template: **Context** (the problem and constraints), **Decision**, **Consequences** (trade-offs, follow-ups).
